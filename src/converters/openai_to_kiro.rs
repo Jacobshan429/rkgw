@@ -572,6 +572,9 @@ mod tests {
             tls_enabled: false,
             tls_cert_path: None,
             tls_key_path: None,
+            exa_api_key: None,
+            web_search_max_results: 5,
+            web_search_max_iterations: 3,
         }
     }
 

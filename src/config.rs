@@ -116,6 +116,11 @@ pub struct Config {
     pub tls_enabled: bool,
     pub tls_cert_path: Option<PathBuf>,
     pub tls_key_path: Option<PathBuf>,
+
+    // Web search
+    pub exa_api_key: Option<String>,
+    pub web_search_max_results: usize,
+    pub web_search_max_iterations: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +225,17 @@ impl Config {
             tls_enabled: args.tls,
             tls_cert_path: args.tls_cert.map(|s| expand_tilde(&s)),
             tls_key_path: args.tls_key.map(|s| expand_tilde(&s)),
+
+            // Web search
+            exa_api_key: std::env::var("EXA_API_KEY").ok(),
+            web_search_max_results: std::env::var("WEB_SEARCH_MAX_RESULTS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5),
+            web_search_max_iterations: std::env::var("WEB_SEARCH_MAX_ITERATIONS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3),
         };
 
         Ok(config)
@@ -479,6 +495,9 @@ mod tests {
             tls_enabled,
             tls_cert_path: None,
             tls_key_path: None,
+            exa_api_key: None,
+            web_search_max_results: 5,
+            web_search_max_iterations: 3,
         };
 
         (config, temp_file)
@@ -541,6 +560,14 @@ mod tests {
         let (config, _tmp) = create_test_config("192.168.1.100", true);
         assert!(config.validate().is_ok());
         let _ = std::fs::remove_file(_tmp);
+    }
+
+    #[test]
+    fn test_web_search_config_defaults() {
+        let (config, _tmp) = create_test_config("127.0.0.1", false);
+        assert_eq!(config.exa_api_key, None);
+        assert_eq!(config.web_search_max_results, 5);
+        assert_eq!(config.web_search_max_iterations, 3);
     }
 }
 
