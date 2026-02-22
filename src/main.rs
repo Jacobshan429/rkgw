@@ -20,6 +20,7 @@ mod thinking_parser;
 mod tls;
 mod tokenizer;
 mod utils;
+mod web_search;
 
 #[tokio::main]
 async fn main() -> Result<()> {
