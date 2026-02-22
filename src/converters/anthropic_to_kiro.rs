@@ -87,6 +87,42 @@ fn convert_anthropic_content(content: &Value) -> MessageContent {
                         let input = block.get("input")?.clone();
                         Some(ContentBlock::ToolUse { id, name, input })
                     }
+                    "server_tool_use" => {
+                        // Server-side tool use (e.g. web_search) — treat like regular tool_use
+                        let id = block.get("id")?.as_str()?.to_string();
+                        let name = block.get("name")?.as_str()?.to_string();
+                        let input = block.get("input").cloned().unwrap_or(serde_json::json!({}));
+                        Some(ContentBlock::ToolUse { id, name, input })
+                    }
+                    "web_search_tool_result" => {
+                        // Web search tool result — convert to a ToolResult with summarized content
+                        let tool_use_id = block.get("tool_use_id")?.as_str()?.to_string();
+                        let content = if let Some(results) = block.get("content").and_then(|c| c.as_array()) {
+                            results
+                                .iter()
+                                .filter_map(|r| {
+                                    let title = r.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                                    let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                    if title.is_empty() && url.is_empty() {
+                                        None
+                                    } else {
+                                        Some(format!("{}: {}", title, url))
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        } else {
+                            String::new()
+                        };
+                        Some(ContentBlock::ToolResult {
+                            tool_use_id,
+                            content: if content.is_empty() {
+                                "(no search results)".to_string()
+                            } else {
+                                content
+                            },
+                        })
+                    }
                     _ => None,
                 }
             })
@@ -253,27 +289,51 @@ pub fn convert_anthropic_messages(messages: &[AnthropicMessage]) -> Vec<UnifiedM
 
 /// Converts Anthropic tools to unified format.
 ///
-/// Server-side tools (e.g. `web_search`) have no `input_schema` and are
-/// filtered out because the Kiro API doesn't support them directly.
+/// Server-side tools with `web_search` in the name are converted to regular tools
+/// with a synthetic input_schema so Kiro can present them to the model.
+/// Other server-side tools without `input_schema` are filtered out.
 pub fn convert_anthropic_tools(tools: &Option<Vec<AnthropicTool>>) -> Option<Vec<UnifiedTool>> {
     tools.as_ref().map(|tools| {
         tools
             .iter()
-            .filter(|tool| {
-                if tool.input_schema.is_none() {
+            .filter_map(|tool| {
+                if tool.input_schema.is_some() {
+                    // Regular tool — pass through
+                    Some(UnifiedTool {
+                        name: tool.name.clone(),
+                        description: tool.description.clone(),
+                        input_schema: tool.input_schema.clone(),
+                    })
+                } else if tool.name == "web_search" || tool.tool_type.as_ref().is_some_and(|t| t.starts_with("web_search")) {
+                    // web_search server-side tool — convert to regular tool
                     debug!(
-                        "Filtering out server-side tool '{}' (type: {:?}) - not supported by Kiro API",
+                        "Converting server-side tool '{}' (type: {:?}) to regular tool for Kiro",
                         tool.name, tool.tool_type
                     );
-                    false
+                    Some(UnifiedTool {
+                        name: "web_search".to_string(),
+                        description: Some(
+                            "Search the web for current information. Use this when you need up-to-date data, news, or facts beyond your knowledge cutoff.".to_string()
+                        ),
+                        input_schema: Some(serde_json::json!({
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The search query"
+                                }
+                            },
+                            "required": ["query"]
+                        })),
+                    })
                 } else {
-                    true
+                    // Unknown server-side tool — filter out
+                    debug!(
+                        "Filtering out unsupported server-side tool '{}' (type: {:?})",
+                        tool.name, tool.tool_type
+                    );
+                    None
                 }
-            })
-            .map(|tool| UnifiedTool {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                input_schema: tool.input_schema.clone(),
             })
             .collect()
     })
@@ -822,7 +882,7 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_anthropic_tools_filters_server_side_tools() {
+    fn test_convert_anthropic_tools_converts_web_search_to_regular_tool() {
         let tools = vec![
             AnthropicTool {
                 name: "web_search".to_string(),
@@ -841,7 +901,35 @@ mod tests {
         let unified = convert_anthropic_tools(&Some(tools));
         assert!(unified.is_some());
         let tools = unified.unwrap();
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "get_weather");
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "web_search");
+        assert!(tools[0].input_schema.is_some());
+        assert_eq!(tools[1].name, "get_weather");
+    }
+
+    #[test]
+    fn test_convert_messages_with_server_tool_use_in_history() {
+        let messages = vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: json!("What's the latest on Rust?"),
+            },
+            AnthropicMessage {
+                role: "assistant".to_string(),
+                content: json!([
+                    {"type": "text", "text": "Let me search for that."},
+                    {"type": "server_tool_use", "id": "srvtoolu_123", "name": "web_search", "input": {"query": "latest Rust news"}},
+                    {"type": "web_search_tool_result", "tool_use_id": "srvtoolu_123", "content": [{"type": "web_search_result", "url": "https://example.com", "title": "Rust News"}]},
+                    {"type": "text", "text": "Based on search results, here is the latest."}
+                ]),
+            },
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: json!("Tell me more"),
+            },
+        ];
+
+        let converted = convert_anthropic_messages(&messages);
+        assert_eq!(converted.len(), 3);
     }
 }
