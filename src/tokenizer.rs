@@ -323,8 +323,10 @@ pub fn count_anthropic_message_tokens(
             if let Some(ref desc) = tool.description {
                 total_tokens += count_tokens(desc, false);
             }
-            let schema_str = serde_json::to_string(&tool.input_schema).unwrap_or_default();
-            total_tokens += count_tokens(&schema_str, false);
+            if let Some(ref schema) = tool.input_schema {
+                let schema_str = serde_json::to_string(schema).unwrap_or_default();
+                total_tokens += count_tokens(&schema_str, false);
+            }
         }
     }
 

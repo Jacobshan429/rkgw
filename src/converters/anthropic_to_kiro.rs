@@ -252,14 +252,28 @@ pub fn convert_anthropic_messages(messages: &[AnthropicMessage]) -> Vec<UnifiedM
 }
 
 /// Converts Anthropic tools to unified format.
+///
+/// Server-side tools (e.g. `web_search`) have no `input_schema` and are
+/// filtered out because the Kiro API doesn't support them directly.
 pub fn convert_anthropic_tools(tools: &Option<Vec<AnthropicTool>>) -> Option<Vec<UnifiedTool>> {
     tools.as_ref().map(|tools| {
         tools
             .iter()
+            .filter(|tool| {
+                if tool.input_schema.is_none() {
+                    debug!(
+                        "Filtering out server-side tool '{}' (type: {:?}) - not supported by Kiro API",
+                        tool.name, tool.tool_type
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
             .map(|tool| UnifiedTool {
                 name: tool.name.clone(),
                 description: tool.description.clone(),
-                input_schema: Some(tool.input_schema.clone()),
+                input_schema: tool.input_schema.clone(),
             })
             .collect()
     })
@@ -754,7 +768,8 @@ mod tests {
         let tools = vec![AnthropicTool {
             name: "get_weather".to_string(),
             description: Some("Get weather".to_string()),
-            input_schema: json!({"type": "object"}),
+            input_schema: Some(json!({"type": "object"})),
+            tool_type: None,
         }];
 
         let unified = convert_anthropic_tools(&Some(tools));
@@ -783,12 +798,16 @@ mod tests {
             AnthropicTool {
                 name: "tool_a".to_string(),
                 description: Some("Tool A".to_string()),
-                input_schema: json!({"type": "object", "properties": {"x": {"type": "string"}}}),
+                input_schema: Some(
+                    json!({"type": "object", "properties": {"x": {"type": "string"}}}),
+                ),
+                tool_type: None,
             },
             AnthropicTool {
                 name: "tool_b".to_string(),
                 description: None,
-                input_schema: json!({"type": "object"}),
+                input_schema: Some(json!({"type": "object"})),
+                tool_type: None,
             },
         ];
 
@@ -800,5 +819,29 @@ mod tests {
         assert!(tools[0].description.is_some());
         assert_eq!(tools[1].name, "tool_b");
         assert!(tools[1].description.is_none());
+    }
+
+    #[test]
+    fn test_convert_anthropic_tools_filters_server_side_tools() {
+        let tools = vec![
+            AnthropicTool {
+                name: "web_search".to_string(),
+                description: None,
+                input_schema: None,
+                tool_type: Some("web_search_20250305".to_string()),
+            },
+            AnthropicTool {
+                name: "get_weather".to_string(),
+                description: Some("Get weather".to_string()),
+                input_schema: Some(json!({"type": "object"})),
+                tool_type: None,
+            },
+        ];
+
+        let unified = convert_anthropic_tools(&Some(tools));
+        assert!(unified.is_some());
+        let tools = unified.unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "get_weather");
     }
 }
