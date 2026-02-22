@@ -21,6 +21,7 @@ mod tls;
 mod tokenizer;
 mod utils;
 mod web_search;
+mod web_search_loop;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -164,6 +165,14 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(metrics::MetricsCollector::new());
     tracing::info!("✅ Metrics collector initialized");
 
+    let exa_client = config.exa_api_key.as_ref().map(|key| {
+        tracing::info!("Exa web search client initialized");
+        Arc::new(web_search::ExaClient::new(key.clone(), config.web_search_max_results))
+    });
+    if exa_client.is_none() {
+        tracing::info!("Web search disabled (no EXA_API_KEY configured)");
+    }
+
     let app_state = routes::AppState {
         proxy_api_key: config.proxy_api_key.clone(),
         model_cache: model_cache.clone(),
@@ -172,6 +181,7 @@ async fn main() -> Result<()> {
         resolver,
         config: Arc::new(config.clone()),
         metrics: Arc::clone(&metrics),
+        exa_client,
     };
 
     let app = build_app(app_state);

@@ -16,6 +16,7 @@ pub mod tls;
 pub mod tokenizer;
 pub mod utils;
 pub mod web_search;
+pub mod web_search_loop;
 
 #[cfg(feature = "bench")]
 pub mod bench;
