@@ -27,6 +27,7 @@ use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
 use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
+use crate::web_search::ExaClient;
 use std::time::Instant;
 
 /// Application version from Cargo.toml
@@ -42,6 +43,7 @@ pub struct AppState {
     pub resolver: ModelResolver,
     pub config: Arc<Config>,
     pub metrics: Arc<MetricsCollector>,
+    pub exa_client: Option<Arc<ExaClient>>,
 }
 
 /// Guard to ensure active connections are decremented on drop
@@ -670,6 +672,7 @@ mod tests {
             resolver,
             config,
             metrics,
+            exa_client: None,
         }
     }
 

@@ -152,6 +152,7 @@ mod tests {
             resolver,
             config,
             metrics,
+            exa_client: None,
         }
     }
 
@@ -481,6 +482,7 @@ mod tests {
             resolver,
             config,
             metrics,
+            exa_client: None,
         }
     }
 
