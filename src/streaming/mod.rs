@@ -2608,3 +2608,49 @@ pub async fn collect_anthropic_response(
 
     Ok(response)
 }
+
+/// Collect all events from a Kiro stream into a StreamResult.
+///
+/// This is used by the web search agentic loop to inspect tool calls
+/// before deciding how to format the final response.
+pub async fn collect_stream_result(
+    stream: impl Stream<Item = Result<KiroEvent, ApiError>>,
+) -> Result<StreamResult, ApiError> {
+    use futures::pin_mut;
+    pin_mut!(stream);
+
+    let mut result = StreamResult::default();
+
+    while let Some(event) = stream.next().await {
+        let event = event?;
+        match event.event_type.as_str() {
+            "content" => {
+                if let Some(content) = event.content {
+                    result.content.push_str(&content);
+                }
+            }
+            "thinking" => {
+                if let Some(thinking) = event.thinking_content {
+                    result.thinking_content.push_str(&thinking);
+                }
+            }
+            "tool_use" => {
+                if let Some(tool_use) = event.tool_use {
+                    result.tool_calls.push(tool_use);
+                }
+            }
+            "usage" => {
+                result.usage = event.usage;
+            }
+            "context_usage" => {
+                result.context_usage_percentage = event.context_usage_percentage;
+            }
+            _ => {}
+        }
+    }
+
+    // Deduplicate tool calls
+    result.tool_calls = deduplicate_tool_calls(result.tool_calls);
+
+    Ok(result)
+}
