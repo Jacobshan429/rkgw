@@ -33,6 +33,15 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
     },
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    WebSearchToolResult {
+        tool_use_id: String,
+        content: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,4 +227,48 @@ pub struct MessageStartData {
     pub content: Vec<serde_json::Value>,
     pub model: String,
     pub usage: AnthropicUsage,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_server_tool_use() {
+        let json = r#"{"type": "server_tool_use", "id": "srvtoolu_123", "name": "web_search", "input": {"query": "rust"}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::ServerToolUse { id, name, input } => {
+                assert_eq!(id, "srvtoolu_123");
+                assert_eq!(name, "web_search");
+                assert_eq!(input["query"], "rust");
+            }
+            _ => panic!("Expected ServerToolUse"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_web_search_tool_result() {
+        let json = r#"{"type": "web_search_tool_result", "tool_use_id": "srvtoolu_123", "content": [{"type": "web_search_result", "url": "https://example.com", "title": "Example"}]}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::WebSearchToolResult { tool_use_id, content } => {
+                assert_eq!(tool_use_id, "srvtoolu_123");
+                assert!(content.is_array());
+            }
+            _ => panic!("Expected WebSearchToolResult"),
+        }
+    }
+
+    #[test]
+    fn test_serialize_server_tool_use() {
+        let block = ContentBlock::ServerToolUse {
+            id: "srvtoolu_123".to_string(),
+            name: "web_search".to_string(),
+            input: serde_json::json!({"query": "test"}),
+        };
+        let json = serde_json::to_value(&block).unwrap();
+        assert_eq!(json["type"], "server_tool_use");
+        assert_eq!(json["id"], "srvtoolu_123");
+    }
 }
