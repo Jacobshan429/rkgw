@@ -490,10 +490,7 @@ async fn anthropic_messages_handler(
         })?;
 
         // Build Anthropic response from loop result
-        let response_id = format!(
-            "msg_{}",
-            &Uuid::new_v4().to_string().replace('-', "")[..24]
-        );
+        let response_id = format!("msg_{}", &Uuid::new_v4().to_string().replace('-', "")[..24]);
         let anthropic_response = json!({
             "id": response_id,
             "type": "message",
@@ -514,8 +511,7 @@ async fn anthropic_messages_handler(
         );
 
         if request.stream {
-            let sse_events =
-                format_web_search_response_as_sse(&anthropic_response, &request.model);
+            let sse_events = format_web_search_response_as_sse(&anthropic_response, &request.model);
             let byte_stream = futures::stream::iter(
                 sse_events
                     .into_iter()

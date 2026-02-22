@@ -68,7 +68,10 @@ impl ExaClient {
         }
 
         let exa_response: ExaSearchResponse = response.json().await?;
-        debug!(count = exa_response.results.len(), "Exa search returned results");
+        debug!(
+            count = exa_response.results.len(),
+            "Exa search returned results"
+        );
         Ok(exa_response.results)
     }
 

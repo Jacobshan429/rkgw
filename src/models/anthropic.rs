@@ -252,7 +252,10 @@ mod tests {
         let json = r#"{"type": "web_search_tool_result", "tool_use_id": "srvtoolu_123", "content": [{"type": "web_search_result", "url": "https://example.com", "title": "Example"}]}"#;
         let block: ContentBlock = serde_json::from_str(json).unwrap();
         match block {
-            ContentBlock::WebSearchToolResult { tool_use_id, content } => {
+            ContentBlock::WebSearchToolResult {
+                tool_use_id,
+                content,
+            } => {
                 assert_eq!(tool_use_id, "srvtoolu_123");
                 assert!(content.is_array());
             }

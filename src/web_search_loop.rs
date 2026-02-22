@@ -29,6 +29,7 @@ pub struct WebSearchLoopResult {
 /// 2. If model calls web_search, execute via Exa
 /// 3. Build follow-up request with results
 /// 4. Repeat until no more web_search calls or max iterations
+#[allow(clippy::too_many_arguments)]
 pub async fn run_web_search_loop(
     http_client: &crate::http_client::KiroHttpClient,
     auth_manager: &crate::auth::AuthManager,
@@ -233,7 +234,8 @@ fn build_followup_payload(
     payload["conversationState"]["history"] = json!(new_history);
     payload["conversationState"]["currentMessage"]["userInputMessage"]["content"] =
         json!(tool_result_text);
-    payload["conversationState"]["currentMessage"]["userInputMessage"]["userInputMessageContext"]["toolResults"] = json!([{
+    payload["conversationState"]["currentMessage"]["userInputMessage"]["userInputMessageContext"]
+        ["toolResults"] = json!([{
         "content": [{"text": tool_result_text}],
         "status": "success",
         "toolUseId": tool_use_id
@@ -300,9 +302,7 @@ mod tests {
             "Search results for \"Rust\":\n\n1. Rust Lang (https://rust-lang.org)\n",
         );
 
-        let history = followup["conversationState"]["history"]
-            .as_array()
-            .unwrap();
+        let history = followup["conversationState"]["history"].as_array().unwrap();
         assert_eq!(history.len(), 1);
 
         let current_content = followup["conversationState"]["currentMessage"]["userInputMessage"]

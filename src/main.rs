@@ -167,7 +167,10 @@ async fn main() -> Result<()> {
 
     let exa_client = config.exa_api_key.as_ref().map(|key| {
         tracing::info!("Exa web search client initialized");
-        Arc::new(web_search::ExaClient::new(key.clone(), config.web_search_max_results))
+        Arc::new(web_search::ExaClient::new(
+            key.clone(),
+            config.web_search_max_results,
+        ))
     });
     if exa_client.is_none() {
         tracing::info!("Web search disabled (no EXA_API_KEY configured)");

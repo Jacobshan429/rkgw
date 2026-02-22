@@ -97,11 +97,14 @@ fn convert_anthropic_content(content: &Value) -> MessageContent {
                     "web_search_tool_result" => {
                         // Web search tool result — convert to a ToolResult with summarized content
                         let tool_use_id = block.get("tool_use_id")?.as_str()?.to_string();
-                        let content = if let Some(results) = block.get("content").and_then(|c| c.as_array()) {
+                        let content = if let Some(results) =
+                            block.get("content").and_then(|c| c.as_array())
+                        {
                             results
                                 .iter()
                                 .filter_map(|r| {
-                                    let title = r.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                                    let title =
+                                        r.get("title").and_then(|t| t.as_str()).unwrap_or("");
                                     let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
                                     if title.is_empty() && url.is_empty() {
                                         None
