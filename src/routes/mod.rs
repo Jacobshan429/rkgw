@@ -28,6 +28,7 @@ use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
 use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
 use crate::web_search::ExaClient;
+use crate::web_search_loop;
 use std::time::Instant;
 
 /// Application version from Cargo.toml
@@ -463,6 +464,79 @@ async fn anthropic_messages_handler(
 
     let kiro_payload = kiro_payload_result.payload;
 
+    // Check if this request needs the web search agentic loop
+    let needs_web_search =
+        web_search_loop::has_web_search_tool(&request.tools) && state.exa_client.is_some();
+
+    if needs_web_search {
+        let exa_client = state.exa_client.as_ref().unwrap();
+        let region = state.auth_manager.get_region().await;
+
+        tracing::info!("Web search detected, entering agentic loop");
+
+        let loop_result = web_search_loop::run_web_search_loop(
+            &state.http_client,
+            &state.auth_manager,
+            exa_client,
+            &region,
+            &kiro_payload,
+            state.config.first_token_timeout,
+            &request.model,
+            state.config.web_search_max_iterations,
+        )
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
+
+        // Build Anthropic response from loop result
+        let response_id = format!(
+            "msg_{}",
+            &Uuid::new_v4().to_string().replace('-', "")[..24]
+        );
+        let anthropic_response = json!({
+            "id": response_id,
+            "type": "message",
+            "role": "assistant",
+            "content": loop_result.content_blocks,
+            "model": request.model,
+            "stop_reason": loop_result.stop_reason,
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": loop_result.input_tokens,
+                "output_tokens": loop_result.output_tokens
+            }
+        });
+
+        guard.complete(
+            loop_result.input_tokens as u64,
+            loop_result.output_tokens as u64,
+        );
+
+        if request.stream {
+            let sse_events =
+                format_web_search_response_as_sse(&anthropic_response, &request.model);
+            let byte_stream = futures::stream::iter(
+                sse_events
+                    .into_iter()
+                    .map(Bytes::from)
+                    .map(Ok::<_, std::io::Error>),
+            );
+            let response = Response::builder()
+                .status(200)
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .header("Connection", "keep-alive")
+                .body(Body::from_stream(byte_stream))
+                .map_err(|e| {
+                    ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e))
+                })?;
+            return Ok(response);
+        } else {
+            return Ok(Json(anthropic_response).into_response());
+        }
+    }
+
     tracing::debug!(
         "Kiro payload: {}",
         serde_json::to_string_pretty(&kiro_payload).unwrap_or_default()
@@ -604,6 +678,64 @@ async fn anthropic_messages_handler(
 
         Ok(Json(anthropic_response).into_response())
     }
+}
+
+/// Convert a complete Anthropic response to a series of SSE event strings.
+fn format_web_search_response_as_sse(response: &Value, model: &str) -> Vec<String> {
+    let mut events = Vec::new();
+
+    // message_start
+    events.push(format!(
+        "event: message_start\ndata: {}\n\n",
+        json!({
+            "type": "message_start",
+            "message": {
+                "id": response["id"],
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": model,
+                "usage": response["usage"]
+            }
+        })
+    ));
+
+    // content blocks
+    if let Some(blocks) = response["content"].as_array() {
+        for (i, block) in blocks.iter().enumerate() {
+            events.push(format!(
+                "event: content_block_start\ndata: {}\n\n",
+                json!({
+                    "type": "content_block_start",
+                    "index": i,
+                    "content_block": block
+                })
+            ));
+
+            events.push(format!(
+                "event: content_block_stop\ndata: {}\n\n",
+                json!({
+                    "type": "content_block_stop",
+                    "index": i
+                })
+            ));
+        }
+    }
+
+    // message_delta
+    events.push(format!(
+        "event: message_delta\ndata: {}\n\n",
+        json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": response["stop_reason"]},
+            "usage": {"output_tokens": response["usage"]["output_tokens"]}
+        })
+    ));
+
+    // message_stop
+    events.push("event: message_stop\ndata: {\"type\": \"message_stop\"}\n\n".to_string());
+
+    events
 }
 
 #[cfg(test)]
